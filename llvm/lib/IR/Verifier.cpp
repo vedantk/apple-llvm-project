@@ -2975,10 +2975,10 @@ void Verifier::visitCallBase(CallBase &Call) {
     if (Intrinsic::ID ID = (Intrinsic::ID)F->getIntrinsicID())
       visitIntrinsicCall(ID, Call);
 
-  // Verify that a callsite has at most one "deopt", at most one "funclet" and
-  // at most one "gc-transition" operand bundle.
+  // Verify that a callsite has at most one "deopt", at most one "funclet",
+  // at most one "gc-transition", and at most one "ptrauth" operand bundle.
   bool FoundDeoptBundle = false, FoundFuncletBundle = false,
-       FoundGCTransitionBundle = false;
+       FoundGCTransitionBundle = false, FoundPtrauthBundle = false;
   for (unsigned i = 0, e = Call.getNumOperandBundles(); i < e; ++i) {
     OperandBundleUse BU = Call.getOperandBundleAt(i);
     uint32_t Tag = BU.getTagID();
@@ -2997,6 +2997,16 @@ void Verifier::visitCallBase(CallBase &Call) {
       Assert(isa<FuncletPadInst>(BU.Inputs.front()),
              "Funclet bundle operands should correspond to a FuncletPadInst",
              Call);
+    } else if (Tag == LLVMContext::OB_ptrauth) {
+      Assert(!FoundPtrauthBundle, "Multiple ptrauth operand bundles", Call);
+      FoundPtrauthBundle = true;
+      Assert(BU.Inputs.size() == 2,
+             "Expected exactly two ptrauth bundle operands", Call);
+      Assert(isa<ConstantInt>(BU.Inputs[0]) &&
+             BU.Inputs[0]->getType()->isIntegerTy(32),
+             "Ptrauth bundle key operand must be an i32 constant", Call);
+      Assert(BU.Inputs[1]->getType()->isIntegerTy(64),
+             "Ptrauth bundle discriminator operand must be an i64", Call);
     }
   }
 
