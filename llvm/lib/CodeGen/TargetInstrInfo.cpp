@@ -1139,11 +1139,15 @@ TargetInstrInfo::describeLoadedValue(const MachineInstr &MI,
     if (Reg == DestReg)
       return ParamLoadedValue(*DestSrc->Source, Expr);
 
+    // We need to teach ARMBaseInstrInfo::isCopyInstrImpl how to handle VMOVS,
+    // see https://bugs.llvm.org/show_bug.cgi?id=45025.
+#ifdef rdar59772698
     // Cases where super- or sub-registers needs to be described should
     // be handled by the target's hook implementation.
     assert(!TRI->isSuperOrSubRegisterEq(Reg, DestReg) &&
            "TargetInstrInfo::describeLoadedValue can't describe super- or "
            "sub-regs for copy instructions");
+#endif
     return None;
   } else if (auto RegImm = isAddImmediate(MI, Reg)) {
     Register SrcReg = RegImm->Reg;
