@@ -7721,7 +7721,9 @@ X86InstrInfo::describeLoadedValue(const MachineInstr &MI, Register Reg) const {
     return ParamLoadedValue(MI.getOperand(1), Expr);
   }
   default:
+#ifdef rdar59822099
     assert(!MI.isMoveImmediate() && "Unexpected MoveImm instruction");
+#endif
     return TargetInstrInfo::describeLoadedValue(MI, Reg);
   }
 }
