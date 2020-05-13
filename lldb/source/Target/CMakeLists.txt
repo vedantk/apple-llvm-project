@@ -41,6 +41,7 @@ add_lldb_library(lldbTarget
   SwiftLanguageRuntime.cpp
   SwiftLanguageRuntimeDynamicTypeResolution.cpp
   SwiftLanguageRuntimeNames.cpp
+  SwiftRemoteMemoryReader.cpp
   SystemRuntime.cpp
   Target.cpp
   TargetList.cpp

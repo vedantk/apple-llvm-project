@@ -27,6 +27,7 @@
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/Language.h"
 #include "lldb/Target/Process.h"
+#include "lldb/Target/SwiftRemoteMemoryReader.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Utility/DataExtractor.h"
 #include "lldb/Utility/State.h"
@@ -57,12 +58,16 @@ cl::SubCommand ObjectFileSubcommand("object-file",
                                     "Display LLDB object file information");
 cl::SubCommand SymbolsSubcommand("symbols", "Dump symbols for an object file");
 cl::SubCommand IRMemoryMapSubcommand("ir-memory-map", "Test IRMemoryMap");
+cl::SubCommand InterposeMemReaderSubcommand(
+    "interpose-memreader",
+    "Interpose a LLDBMemoryReader between a monitor and test process");
 
 cl::opt<std::string> Log("log", cl::desc("Path to a log file"), cl::init(""),
                          cl::sub(BreakpointSubcommand),
                          cl::sub(ObjectFileSubcommand),
                          cl::sub(SymbolsSubcommand),
-                         cl::sub(IRMemoryMapSubcommand));
+                         cl::sub(IRMemoryMapSubcommand),
+                         cl::sub(InterposeMemReaderSubcommand));
 
 /// Create a target using the file pointed to by \p Filename, or abort.
 TargetSP createTarget(Debugger &Dbg, const std::string &Filename);
@@ -235,6 +240,14 @@ bool evalMalloc(StringRef Line, IRMemoryMapTestState &State);
 bool evalFree(StringRef Line, IRMemoryMapTestState &State);
 int evaluateMemoryMapCommands(Debugger &Dbg);
 } // namespace irmemorymap
+
+namespace InterposeMemReader {
+static cl::opt<std::string> Target(cl::Positional, cl::desc("<target>"),
+                                   cl::Required,
+                                   cl::sub(InterposeMemReaderSubcommand));
+
+int interposeMemReader(Debugger &Dbg);
+} // namespace InterposeMemReader
 
 } // namespace opts
 
@@ -1076,6 +1089,41 @@ int opts::irmemorymap::evaluateMemoryMapCommands(Debugger &Dbg) {
   return 0;
 }
 
+int opts::InterposeMemReader::interposeMemReader(Debugger &Dbg) {
+  // A Swift reflection validation tests sets up a parent process and a child
+  // process: the parent implements a memory reader by issuing queries to the
+  // child over a pipe, and the child tests the reflection system by asking the
+  // parent to reflect various instances and validating the output.
+  //
+  // |-----------------------| <-> |----------------------------|
+  // | swift-reflection-test |     | SwiftReflectionTest client |
+  // |-----------------------| <-> |----------------------------|
+  //
+  // When the SwiftReflectionTest client is run on Darwin, it can answer
+  // REQUEST_REFLECTION_INFO and REQUEST_IMAGES queries by making use of magic
+  // dyld APIs. However, equivalent APIs don't exist on other platforms. To
+  // make the tests work, we interpose LLDB in between the two processes and
+  // use its memory reader to answer certain queries. Aside from making more
+  // reflection tests work on non-Darwin platforms, this has the benefit of
+  // providing additional test coverage for LLDB.
+  //
+  // |-----------------------| <-> |------| <-> |----------------------------|
+  // | swift-reflection-test |     | LLDB |     | SwiftReflectionTest client |
+  // |-----------------------| <-> |------| <-> |----------------------------|
+
+  // Fork a child process for InterposeMemReader::Target.
+
+  // Read requests from swift-reflection-test from stdin.
+
+  // Handle REQUEST_IMAGES and REQUEST_REFLECTION_INFO, and everything else
+  // LLDB can find with LLDBMemoryReader here. Forward any other queries to the
+  // child.
+  //
+  // We can use Dbg.GetTargetList().FindTargetWithProcessID to acquire a
+  // Target and Process for the child: with these in hand, it should be simple
+  // to set up the LLDBMemoryReader.
+}
+
 int main(int argc, const char *argv[]) {
   StringRef ToolName = argv[0];
   sys::PrintStackTraceOnErrorSignal(ToolName);
@@ -1113,6 +1161,8 @@ int main(int argc, const char *argv[]) {
     return opts::symbols::dumpSymbols(*Dbg);
   if (opts::IRMemoryMapSubcommand)
     return opts::irmemorymap::evaluateMemoryMapCommands(*Dbg);
+  if (opts::InterposeMemReaderSubcommand)
+    return opts::InterposeMemReader::interposeMemReader(*Dbg);
 
   WithColor::error() << "No command specified.\n";
   return 1;
